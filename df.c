@@ -19,8 +19,10 @@ typedef struct FileItem {
     off_t size;
 } FileItem;
 
+int debug = 0;
+
 void get_files(const char *directory, const char *extension, int reverse, FileItem **files, int *file_count);
-void find_duplicates(FileItem *files, int file_count);
+void find_duplicates(FileItem *files, int compare_bytes, int file_count);
 
 void calculate_hash(const char *filename, unsigned char *output) {
     EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
@@ -78,6 +80,8 @@ void get_files(const char *directory, const char *extension, int reverse, FileIt
         return;
     }
 
+    if (debug) { printf("Getting files from: %s\n", dir); }
+
     while ((entry = readdir(dir)) != NULL) {
         // Skip the current and parent directory entries
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
@@ -92,12 +96,26 @@ void get_files(const char *directory, const char *extension, int reverse, FileIt
         if (entry->d_type == DT_REG) { 
             // Check for extension if specified
             if (extension == NULL || (strrchr(entry->d_name, '.') != NULL && strcmp(strrchr(entry->d_name, '.'), extension) == 0)) {
-                // Add to the file list
+
+                // Get file size
+		struct stat file_stat;
+		long filesize = -1;
+                if (stat(full_path, &file_stat) == 0) {
+                    filesize = file_stat.st_size;
+		}
+
+		// Add to the file list
                 FileItem item;
                 snprintf(item.filename, sizeof(item.filename), "%s", entry->d_name);
                 snprintf(item.path, sizeof(item.path), "%s/%s", directory, entry->d_name);
+                item.size = filesize;
 
-                // printf("Adding to index %d...\n", *file_count);
+		if (debug) { printf("Found file: %s\n", item.filename); }
+
+		// Calculate the hash of the file
+                // calculate_hash(full_path, item.hash);
+                
+		// printf("Adding to index %d...\n", *file_count);
                 (*files)[*file_count] = item;  // Add item to files array
                 (*file_count)++;
                 // printf("Added.\n");
@@ -111,56 +129,52 @@ void get_files(const char *directory, const char *extension, int reverse, FileIt
 }
 
 
-void find_duplicates(FileItem *files, int file_count) {
+void find_duplicates(FileItem *files, int compare_bytes, int file_count) {
     for (int i = 0; i < file_count; ++i) {
         for (int j = i + 1; j < file_count; ++j) {
             // Verhindert den Vergleich von Datei A mit Datei A
-            if (strcmp(files[i].path, files[j].path) == 0) continue;
+            if (strcmp(files[i].filename, files[j].filename) == 0) continue;
 
             // Vergleiche die Größe der Dateien
             if (files[i].size != files[j].size) continue;
 
+            if (debug) { printf("Calculating hash for file size duplicates [%lld bytes]:\n- %s\n- %s\n", (long long) files[i].size, files[i].path, files[j].path); }
+	    
+	    // calc hash
+            calculate_hash(files[i].path, files[i].hash);
+            calculate_hash(files[j].path, files[j].hash);
+
+            if (debug) { printf("Hash:\n- %s\n- %s\n", files[i].hash, files[j].hash); }
+
             // Vergleiche die Hash-Werte der Dateien
             if (memcmp(files[i].hash, files[j].hash, HASH_SIZE) == 0) {
-                // Führe einen Byte-für-Byte-Vergleich durch
-                if (compare_files(files[i].path, files[j].path)) {
-                    printf("Dupe: %s\n ---- %s\n", files[i].path, files[j].path);
-                }
+                
+               if (!compare_bytes) {
+                  printf("Found Hash Dupe:\n	%s\n	%s\n", files[i].path, files[j].path);
+                  continue;
+               }
+
+	       // Führe einen Byte-für-Byte-Vergleich durch
+               if (compare_files(files[i].path, files[j].path)) {
+                  printf("Found Binary Dupe:\n	%s\n	%s\n", files[i].path, files[j].path);
+               }
             }
         }
     }
 }
-
-
-/*void find_duplicates(FileItem *files, int file_count) {
-    for (int i = 0; i < file_count; ++i) {
-        for (int j = i + 1; j < file_count; ++j) {
-            // Verhindert den Vergleich von Datei A mit Datei A
-            if (i == j) continue;
-
-            // Vergleiche die Größe der Dateien
-            if (files[i].size != files[j].size) continue;
-
-            // Vergleiche die Hash-Werte der Dateien
-            if (memcmp(files[i].hash, files[j].hash, HASH_SIZE) == 0) {
-                // Führe einen Byte-für-Byte-Vergleich durch
-                if (compare_files(files[i].path, files[j].path)) {
-                    printf("Dupe: %s\n ---- %s\n", files[i].path, files[j].path);
-                }
-            }
-        }
-    }
-}
-*/
 
 int main(int argc, char *argv[]) {
+    printf("dupefiles 0.2 (c) 2024 by dahead\n");
+
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s /path/to/scan [--recursive] [--filter <extension>]\n", argv[0]);
+        fprintf(stderr, "Usage: %s /path/to/scan [--recursive] [--compare_bytes] [--filter <extension>]\n", argv[0]);
         exit(1);
     }
 
+    int file_count = 0;
     const char *dir_path = argv[1];
     int recursive = 0;
+    int compare_bytes = 0;
     const char *filter = NULL;
 
     for (int i = 2; i < argc; ++i) {
@@ -168,7 +182,12 @@ int main(int argc, char *argv[]) {
             recursive = 1;
         } else if (strcmp(argv[i], "--filter") == 0 && i + 1 < argc) {
             filter = argv[++i];  // Get the extension filter
-        }
+	} else if (strcmp(argv[i], "--compare_bytes") == 0) {
+            compare_bytes = 1; // Enable byte comparison
+        } else if (strcmp(argv[i], "--debug") == 0) {
+	    debug = 1;
+	    printf("Debug on\n");
+	}
     }
 
     // Allocate memory for files
@@ -178,19 +197,23 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    int file_count = 0;
+    if (debug) { printf("Scanning directory %s\n", dir_path); }
+    // printf("Scanning dir %s\n", dir_path);
 
     // Call get_files with the specified arguments
     get_files(dir_path, filter, recursive, &files, &file_count);
 
     // Optional: output file list for debugging
-    // for (int i = 0; i < file_count; i++) {
-    //    printf("File %d: %s (%s)\n", i + 1, files[i].filename, files[i].path);
+    // if (debug) {
+    //    for (int i = 0; i < file_count; i++) {
+    //       printf("- %d: %s (%s)\n", i + 1, files[i].path, files[i].filename);
+    //    }
     //}
 
     // Call find_duplicates to find and print duplicate files
-    find_duplicates(files, file_count);
+    find_duplicates(files, compare_bytes, file_count);
 
+    // close
     free(files); // Free dynamically allocated memory
     return 0;
 }
