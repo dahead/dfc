@@ -33,6 +33,8 @@ void calculate_hash(const char *filename, unsigned char *output) {
     unsigned char buffer[1024];
     size_t bytes;
 
+    if (debug) { printf("Calculating SHA512 hash for %s\n", filename); }
+
     EVP_DigestInit_ex(mdctx, md, NULL);
     while ((bytes = fread(buffer, 1, sizeof(buffer), file)) != 0) {
         EVP_DigestUpdate(mdctx, buffer, bytes);
