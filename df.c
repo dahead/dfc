@@ -111,9 +111,6 @@ void get_files(const char *directory, const char *extension, int reverse, FileIt
                 item.size = filesize;
 
 		if (debug) { printf("Found file: %s\n", item.filename); }
-
-		// Calculate the hash of the file
-                // calculate_hash(full_path, item.hash);
                 
 		// printf("Adding to index %d...\n", *file_count);
                 (*files)[*file_count] = item;  // Add item to files array
@@ -132,8 +129,11 @@ void get_files(const char *directory, const char *extension, int reverse, FileIt
 void find_duplicates(FileItem *files, int compare_bytes, int file_count) {
     for (int i = 0; i < file_count; ++i) {
         for (int j = i + 1; j < file_count; ++j) {
-            // Verhindert den Vergleich von Datei A mit Datei A
-            if (strcmp(files[i].filename, files[j].filename) == 0) continue;
+            // if (debug) { printf("Comparing paths: %s vs %s\n", files[i].path, files[j].path); }
+
+	    // Verhindert den Vergleich von Datei A mit Datei A
+            if (strcmp(files[i].path, files[j].path) == 0) continue;
+            // if (strcmp(files[i].path, files[j].path) == 0 && strcmp(files[i].filename, files[j].filename) == 0) continue;
 
             // Vergleiche die Größe der Dateien
             if (files[i].size != files[j].size) continue;
